@@ -1,0 +1,11 @@
+# Model files (downloaded during install)
+whisper-model/
+*.bin
+
+# Runtime files
+voice_input.log
+voice_input.pid
+
+# Python
+__pycache__/
+*.pyc
