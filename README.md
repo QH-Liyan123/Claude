@@ -60,6 +60,19 @@ In Claude Code:
 
 ## Configuration
 
+### Trigger Key
+
+The default trigger key is **CapsLock**. To change it, edit `voice_input.py`:
+
+```python
+# Find this function and change Key.caps_lock to your preferred key
+def is_capslock_key(key):
+    return key == Key.caps_lock  # Change to Key.ctrl_l, Key.alt_l, Key.scroll_lock, etc.
+```
+
+Available keys: `Key.ctrl_l`, `Key.ctrl_r`, `Key.alt_l`, `Key.alt_r`, `Key.scroll_lock`, `Key.pause`, etc.
+See [pynput documentation](https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key) for full list.
+
 ### Model Size
 
 Set environment variable before starting to use a different model:
