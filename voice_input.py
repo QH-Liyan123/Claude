@@ -1,9 +1,9 @@
 """
 Voice Input Tool - Background mode
-Hold Ctrl to speak, release to auto-type text.
-Say "关闭语音" to exit.
+Hold CapsLock to speak, release to auto-type text.
+Say "关闭语音" or "stop voice" to exit.
 
-Created by Leon Li(李岩) - 20260225
+Created by Leon Li(李岩) - 20260226
 """
 
 import ctypes
@@ -19,13 +19,18 @@ from faster_whisper import WhisperModel
 from pynput import keyboard
 from pynput.keyboard import Controller as KbController, Key
 
+# Configuration
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(_SCRIPT_DIR, "voice_input.log")
 PID_FILE = os.path.join(_SCRIPT_DIR, "voice_input.pid")
-MODEL_DIR = os.path.join(_SCRIPT_DIR, "whisper-model")
+
+# Model configuration - downloads from HuggingFace on first run
+# Options: "tiny", "base", "small", "medium", "large-v3"
+MODEL_SIZE = os.environ.get("VOICE_MODEL_SIZE", "small")
+
 SAMPLE_RATE = 16000
-HOLD_THRESHOLD = 0.25
-MIN_RECORDING_TIME = 0.5
+HOLD_THRESHOLD = 0.25  # seconds to hold CapsLock before recording starts
+MIN_RECORDING_TIME = 0.5  # minimum recording duration in seconds
 
 
 def log(msg):
@@ -64,9 +69,9 @@ def drain_queue(q):
             break
 
 
-def is_ctrl_key(key):
-    """Check whether a key is either left or right Ctrl."""
-    return key in (Key.ctrl_l, Key.ctrl_r)
+def is_capslock_key(key):
+    """Check whether the key is CapsLock."""
+    return key == Key.caps_lock
 
 
 class RecordingIndicator:
@@ -97,8 +102,8 @@ class RecordingIndicator:
         # Create label
         self.label = tk.Label(
             self.root,
-            text="🎤 录音中...",
-            font=("Microsoft YaHei", 14, "bold"),
+            text="🎤 Recording...",
+            font=("Arial", 14, "bold"),
             fg="#ffffff",
             bg="#e74c3c",  # Red background
             padx=20,
@@ -134,7 +139,7 @@ class RecordingIndicator:
             self.root.after(0, lambda: self.label.config(text=text))
 
     def _do_show(self):
-        self.label.config(text="🎤 录音中...", bg="#e74c3c")
+        self.label.config(text="🎤 Recording...", bg="#e74c3c")
         self.root.deiconify()
 
     def _do_hide(self):
@@ -148,8 +153,8 @@ indicator = None  # Will be initialized in main()
 
 # Thread-safe state
 state_lock = threading.Lock()
-ctrl_pressed = False
-ctrl_press_time = 0.0
+capslock_pressed = False
+capslock_press_time = 0.0
 is_recording = False
 recording_start_time = 0.0
 
@@ -236,13 +241,13 @@ def type_text(text):
 
 
 def on_key_press(key):
-    global ctrl_pressed, ctrl_press_time
+    global capslock_pressed, capslock_press_time
 
-    if is_ctrl_key(key):
+    if is_capslock_key(key):
         with state_lock:
-            if not ctrl_pressed:
-                ctrl_pressed = True
-                ctrl_press_time = time.time()
+            if not capslock_pressed:
+                capslock_pressed = True
+                capslock_press_time = time.time()
 
 
 def _cancel_recording():
@@ -253,20 +258,20 @@ def _cancel_recording():
 
 
 def on_key_release(key):
-    global ctrl_pressed, is_recording, recording_start_time
+    global capslock_pressed, is_recording, recording_start_time
 
-    if not is_ctrl_key(key):
-        # Non-Ctrl key released while Ctrl held = keyboard shortcut, cancel recording
+    if not is_capslock_key(key):
+        # Non-CapsLock key released while CapsLock held = keyboard shortcut, cancel recording
         with state_lock:
-            if ctrl_pressed and is_recording:
+            if capslock_pressed and is_recording:
                 _cancel_recording()
                 if indicator:
                     indicator.hide()
         return
 
-    # Ctrl key released
+    # CapsLock key released
     with state_lock:
-        ctrl_pressed = False
+        capslock_pressed = False
 
         if not is_recording:
             return
@@ -277,7 +282,7 @@ def on_key_release(key):
     if rec_duration >= MIN_RECORDING_TIME:
         log(f"Recording stopped ({rec_duration:.2f}s)")
         if indicator:
-            indicator.update_text("⏳ 识别中...")
+            indicator.update_text("⏳ Processing...")
         audio_queue.put(None)
     else:
         log(f"Recording too short ({rec_duration:.2f}s)")
@@ -286,16 +291,16 @@ def on_key_release(key):
             indicator.hide()
 
 
-def ctrl_hold_watcher():
-    """Watch for Ctrl held > threshold to start recording."""
+def capslock_hold_watcher():
+    """Watch for CapsLock held > threshold to start recording."""
     global is_recording, recording_start_time
 
     while not shutdown_event.is_set():
         should_start = False
 
         with state_lock:
-            if ctrl_pressed and not is_recording:
-                if (time.time() - ctrl_press_time) >= HOLD_THRESHOLD:
+            if capslock_pressed and not is_recording:
+                if (time.time() - capslock_press_time) >= HOLD_THRESHOLD:
                     is_recording = True
                     recording_start_time = time.time()
                     should_start = True
@@ -309,7 +314,8 @@ def ctrl_hold_watcher():
         time.sleep(0.03)
 
 
-STOP_PHRASES = {"关闭语音", "停止语音", "退出语音", "停止录音", "关闭录音"}
+# Stop phrases - say any of these to exit
+STOP_PHRASES = {"关闭语音", "停止语音", "退出语音", "停止录音", "关闭录音", "stop voice", "exit voice"}
 
 
 def recognize_worker(model):
@@ -344,7 +350,7 @@ def recognize_worker(model):
             log("No speech detected")
         else:
             # Strip punctuation for stop phrase check
-            clean = text.rstrip("。，、！？.,!? ")
+            clean = text.rstrip("。，、！？.,!? ").lower()
             if clean in STOP_PHRASES:
                 log("Stop phrase detected")
                 shutdown("Stop phrase")
@@ -368,16 +374,16 @@ def main():
     indicator = RecordingIndicator()
     log("Indicator ready")
 
-    log(f"Loading Whisper model from {MODEL_DIR}...")
-    model = WhisperModel(MODEL_DIR, device="cpu", compute_type="int8")
+    log(f"Loading Whisper model '{MODEL_SIZE}' (will download on first run)...")
+    model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
     log("Model loaded")
 
     # Start background threads
     threading.Thread(target=recognize_worker, args=(model,), daemon=True).start()
-    threading.Thread(target=ctrl_hold_watcher, daemon=True).start()
+    threading.Thread(target=capslock_hold_watcher, daemon=True).start()
     keyboard.Listener(on_press=on_key_press, on_release=on_key_release).start()
 
-    log("Ready - Hold Ctrl to speak")
+    log("Ready - Hold CapsLock to speak")
 
     with sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=4000, dtype="int16",
                            channels=1, callback=audio_callback):

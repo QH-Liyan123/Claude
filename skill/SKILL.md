@@ -1,6 +1,6 @@
 ---
 name: voice
-description: Voice input for Claude Code. Hold Ctrl to speak, text auto-types into Claude Code input. Say "关闭语音" to stop. Use when user wants voice input, speech-to-text, or hands-free interaction with Claude Code.
+description: Voice input for Claude Code. Hold CapsLock to speak, text auto-types into Claude Code input. Say "关闭语音" or "stop voice" to exit. Use when user wants voice input, speech-to-text, or hands-free interaction with Claude Code.
 ---
 
 # Voice Input Skill
@@ -14,60 +14,41 @@ Enables voice input for Claude Code using local speech recognition (faster-whisp
 Run this command to start the voice listener in the background:
 
 ```bash
-pythonw %USERPROFILE%/tools/voice_input.py &
+INSTALL_DIR="$HOME/.claude/skills/voice"; rm -f "$INSTALL_DIR/voice_input.pid" "$INSTALL_DIR/voice_input.log"; pythonw "$INSTALL_DIR/voice_input.py" & sleep 10 && tail -5 "$INSTALL_DIR/voice_input.log" && cat "$INSTALL_DIR/voice_input.pid"
 ```
 
-Then confirm to the user:
-
-1. Check if the process started successfully:
-```bash
-sleep 1 && tail -5 %USERPROFILE%/tools/voice_input.log
-```
-
-2. Check if PID file exists:
-```bash
-cat %USERPROFILE%/tools/voice_input.pid
-```
-
-3. Tell the user:
-   - Voice input is active
-   - **Hold Ctrl** to speak (hold for 0.25s+ to activate)
-   - Release Ctrl to auto-type the recognized text
-   - Say **"关闭语音"**, **"停止录音"** or similar to stop (recommended, no confirmation needed)
+Then tell the user:
+- Voice input is active
+- **Hold CapsLock** to speak (hold for 0.25s+ to activate)
+- Release CapsLock to auto-type the recognized text
+- Say **"关闭语音"**, **"stop voice"** or similar to exit
 
 ### Stop voice input: `/voice stop`
 
-When user says `/voice stop` or asks to stop voice input, run this single command (no extra confirmation needed):
-
 ```bash
-PID=$(cat %USERPROFILE%/tools/voice_input.pid 2>/dev/null) && taskkill //F //PID $PID 2>/dev/null; rm -f %USERPROFILE%/tools/voice_input.pid; echo "Voice input stopped"
+taskkill //F //IM pythonw.exe 2>/dev/null; rm -f "$HOME/.claude/skills/voice/voice_input.pid"; echo "Voice input stopped"
 ```
-
-Then tell the user voice input has been stopped.
 
 ### Check status: `/voice status`
 
 ```bash
-if [ -f %USERPROFILE%/tools/voice_input.pid ]; then
-  PID=$(cat %USERPROFILE%/tools/voice_input.pid)
-  if kill -0 $PID 2>/dev/null; then
-    echo "Voice input is running (PID: $PID)"
-  else
-    echo "Voice input is not running (stale PID file)"
-    rm -f %USERPROFILE%/tools/voice_input.pid
-  fi
-else
-  echo "Voice input is not running"
-fi
+INSTALL_DIR="$HOME/.claude/skills/voice"; if [ -f "$INSTALL_DIR/voice_input.pid" ]; then PID=$(cat "$INSTALL_DIR/voice_input.pid"); kill -0 $PID 2>/dev/null && echo "Voice input is running (PID: $PID)" || echo "Voice input is not running"; else echo "Voice input is not running"; fi
 ```
 
 ## Important Notes
 
-- Before starting, check if voice input is already running (check PID file) to avoid duplicate processes
 - The script uses `pythonw` (no console window) to run in background
-- Logs are written to `%USERPROFILE%/tools/voice_input.log`
-- Uses faster-whisper with local Whisper small model, supports Chinese-English mixed input
-- Model is downloaded to `%USERPROFILE%/tools/whisper-model/` during installation
+- Logs are written to `~/.claude/skills/voice/voice_input.log`
+- Uses faster-whisper with Whisper small model (downloads automatically on first run)
+- Model is cached in HuggingFace cache directory
+
+## Configuration
+
+Set environment variable to use a different model size:
+
+```bash
+export VOICE_MODEL_SIZE=medium  # Options: tiny, base, small, medium, large-v3
+```
 
 ---
-Created by Leon Li(李岩) - 20260225
+Created by Leon Li(李岩) - 20260226
